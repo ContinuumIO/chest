@@ -215,11 +215,8 @@ class Chest(MutableMapping):
             except TypeError:
                 os.remove(fn)
                 raise
-        try:
-            self.memory_usage -= nbytes(self.inmem[key])
-            del self.inmem[key]
-        except KeyError:
-            pass
+        self.memory_usage -= nbytes(self.inmem[key])
+        del self.inmem[key]
 
     def get_from_disk(self, key):
         """ Pull value from disk into memory """
