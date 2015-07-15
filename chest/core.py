@@ -64,9 +64,11 @@ def _open_many(fnames, mode='rb'):
     fs = []
     for fn in fnames:
         fs.append(open(fn, mode=mode))
-    yield fs
-    for f in fs:
-        f.close()
+    try:
+        yield fs
+    finally:
+        for f in fs:
+            f.close()
 
 
 class Chest(MutableMapping):
