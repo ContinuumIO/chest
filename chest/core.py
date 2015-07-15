@@ -1,4 +1,5 @@
 from collections import MutableMapping
+import errno
 from functools import partial
 from threading import Lock
 from contextlib import contextmanager
@@ -13,6 +14,9 @@ except ImportError:  # pragma: no cover
     import pickle  # pragma: no cover
 from heapdict import heapdict
 import hashlib
+
+from .utils import BytesIO
+
 
 DEFAULT_AVAILABLE_MEMORY = 1e9
 MAX_OPEN_FILES = 512
@@ -38,14 +42,33 @@ def _do_nothing(*args, **kwargs):
     pass
 
 
+class full_policy(object):
+    """ Behaviours to use when a a chest is full.
+    """
+    @staticmethod
+    def raise_(chest):
+        """A policy that raises an ENOSPC error if the disk is full.
+        """
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), chest.path)
+
+    @staticmethod
+    def pop_lru(chest):
+        """A policy that removes the most recently used element from
+        the cache when the chest is full.
+        """
+        del chest[chest.heap.popitem()[0]]
+
+
 @contextmanager
 def _open_many(fnames, mode='rb'):
     fs = []
     for fn in fnames:
         fs.append(open(fn, mode=mode))
-    yield fs
-    for f in fs:
-        f.close()
+    try:
+        yield fs
+    finally:
+        for f in fs:
+            f.close()
 
 
 class Chest(MutableMapping):
@@ -64,12 +87,21 @@ class Chest(MutableMapping):
         A directory path to store contents of the chest.  Defaults to a tmp dir
     available_memory : int (optional)
         Number of bytes that a chest should use for in-memory storage
+    available_disk : int (optional)
+        Number of bytes that a chest should use for on-disk storage.
+        If this is not provided then there will be no cap.
+    on_full : function (optional)
+        A function to be called if available_disk has been used; however,
+        more disk space is requested. This function will be passed the chest
     dump : function (optional)
         A function like pickle.dump or json.dump that dumps contents to file
     load : function(optional)
         A function like pickle.load or json.load that loads contents from file
     key_to_filename : function (optional)
         A function to determine filenames from key values
+    lock : Lock (optional)
+        The lock object to use to control access to the disk. If no lock is
+        given, a new threading lock will be used.
     mode : str (t or b)
         Binary or text mode for file storage
 
@@ -88,10 +120,14 @@ class Chest(MutableMapping):
 
     >>> c.drop()
     """
-    def __init__(self, data=None, path=None, available_memory=None,
+    def __init__(self, data=None, path=None,
+                 available_memory=None,
+                 available_disk=None,
                  dump=partial(pickle.dump, protocol=1),
                  load=pickle.load,
                  key_to_filename=key_to_filename,
+                 lock=None,
+                 on_full=full_policy.raise_,
                  on_miss=_do_nothing, on_overflow=_do_nothing,
                  open=open,
                  open_many=_open_many,
@@ -108,9 +144,13 @@ class Chest(MutableMapping):
         self.available_memory = (available_memory if available_memory
                                  is not None else DEFAULT_AVAILABLE_MEMORY)
         self.memory_usage = sum(map(nbytes, self.inmem.values()))
+        self.available_disk = available_disk
+        self.on_full = on_full
         # Functions to control disk I/O
         self.load = load
-        self.dump = dump
+        self._dump = dump
+        if available_disk is None:
+            self.dump = dump
         self.mode = mode
         self.open = open
         self.open_many = open_many
@@ -124,7 +164,7 @@ class Chest(MutableMapping):
             if not os.path.exists(self.path):
                 os.mkdir(self.path)
 
-        self.lock = Lock()
+        self.lock = lock if lock is not None else Lock()
 
         # LRU state
         self.counter = 0
@@ -134,8 +174,25 @@ class Chest(MutableMapping):
         self._on_miss = on_miss
         self._on_overflow = on_overflow
 
-    def __str__(self):
-        return '<chest at %s>' % self.path
+    def __repr__(self):
+        return '<chest at %s: keys=%s>' % (self.path, list(self._keys))
+    __str__ = __repr__
+
+    @property
+    def disk_usage(self):
+        path = self.path
+        return sum(
+            os.path.getsize(os.path.join(r, f))
+            for r, _, fs in os.walk(path) for f in fs
+        )
+
+    def dump(self, data, file_):
+        tmp = BytesIO()
+        self._dump(data, tmp)
+        bs = tmp.getvalue()
+        while self.disk_usage + len(bs) > self.available_disk:
+            self.on_full(self)
+        file_.write(bs)
 
     def key_to_filename(self, key):
         """ Filename where key will be held """
@@ -251,7 +308,6 @@ class Chest(MutableMapping):
 
         while self.memory_usage > self.available_memory:
             key, _ = self.heap.popitem()
-            data = self.inmem[key]
             try:
                 self.move_to_disk(key)
             except TypeError:
@@ -278,7 +334,6 @@ class Chest(MutableMapping):
 
     def __exit__(self, eType, eValue, eTrace):
         with self.lock:
-            L = os.listdir(self.path)
             if not self._explicitly_given_path and os.path.exists(self.path):
                 self.drop()  # pragma: no cover
 
