@@ -1,4 +1,4 @@
-from chest.core import Chest, nbytes, key_to_filename
+from chest.core import Chest, nbytes, key_to_filename, full_policy
 import os
 import re
 import json
@@ -7,7 +7,6 @@ import pickle
 from contextlib import contextmanager
 import numpy as np
 from chest.utils import raises, raise_KeyError
-import time
 import hashlib
 
 
@@ -457,4 +456,22 @@ def test_prefetch():
         c.prefetch(1)
         assert not raises(KeyError, lambda: c[1])
         c.prefetch([1, 2])
+        assert not raises(KeyError, lambda: c[2])
+
+
+def test_available_disk_raise():
+    with tmp_chest(available_disk=0) as c:
+        c[1] = 1
+        assert not raises(KeyError, lambda: c[1])
+        assert raises(OSError, lambda: c.flush())
+
+
+def test_available_disk_pop_lru():
+    with tmp_chest(available_disk=100, on_full=full_policy.pop_lru) as c:
+        c[1] = 1
+        assert not raises(KeyError, lambda: c[1])
+        c[2] = 2
+        assert not raises(KeyError, lambda: c[2])
+        c.flush()
+        assert raises(KeyError, lambda: c[1])
         assert not raises(KeyError, lambda: c[2])

@@ -1,6 +1,14 @@
-def raises(err, lamda):
+import sys
+
+if sys.version_info.major == 2:
+    from StringIO import StringIO as BytesIO
+else:
+    from io import BytesIO
+
+
+def raises(err, lambda_):
     try:
-        lamda()
+        lambda_()
         return False
     except err:
         return True

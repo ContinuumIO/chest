@@ -1,4 +1,5 @@
 from collections import MutableMapping
+import errno
 from functools import partial
 from threading import Lock
 from contextlib import contextmanager
@@ -13,6 +14,9 @@ except ImportError:  # pragma: no cover
     import pickle  # pragma: no cover
 from heapdict import heapdict
 import hashlib
+
+from .utils import BytesIO
+
 
 DEFAULT_AVAILABLE_MEMORY = 1e9
 MAX_OPEN_FILES = 512
@@ -36,6 +40,23 @@ def key_to_filename(key):
 
 def _do_nothing(*args, **kwargs):
     pass
+
+
+class full_policy(object):
+    """ Behaviours to use when a a chest is full.
+    """
+    @staticmethod
+    def raise_(chest):
+        """A policy that raises an ENOSPC error if the disk is full.
+        """
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), chest.path)
+
+    @staticmethod
+    def pop_lru(chest):
+        """A policy that removes the most recently used element from
+        the cache when the chest is full.
+        """
+        del chest[chest.heap.popitem()[0]]
 
 
 @contextmanager
@@ -64,6 +85,12 @@ class Chest(MutableMapping):
         A directory path to store contents of the chest.  Defaults to a tmp dir
     available_memory : int (optional)
         Number of bytes that a chest should use for in-memory storage
+    available_disk : int (optional)
+        Number of bytes that a chest should use for on-disk storage.
+        If this is not provided then there will be no cap.
+    on_full : function (optional)
+        A function to be called if available_disk has been used; however,
+        more disk space is requested. This function will be passed the chest
     dump : function (optional)
         A function like pickle.dump or json.dump that dumps contents to file
     load : function(optional)
@@ -91,11 +118,14 @@ class Chest(MutableMapping):
 
     >>> c.drop()
     """
-    def __init__(self, data=None, path=None, available_memory=None,
+    def __init__(self, data=None, path=None,
+                 available_memory=None,
+                 available_disk=None,
                  dump=partial(pickle.dump, protocol=1),
                  load=pickle.load,
                  key_to_filename=key_to_filename,
                  lock=None,
+                 on_full=full_policy.raise_,
                  on_miss=_do_nothing, on_overflow=_do_nothing,
                  open=open,
                  open_many=_open_many,
@@ -112,9 +142,13 @@ class Chest(MutableMapping):
         self.available_memory = (available_memory if available_memory
                                  is not None else DEFAULT_AVAILABLE_MEMORY)
         self.memory_usage = sum(map(nbytes, self.inmem.values()))
+        self.available_disk = available_disk
+        self.on_full = on_full
         # Functions to control disk I/O
         self.load = load
-        self.dump = dump
+        self._dump = dump
+        if available_disk is None:
+            self.dump = dump
         self.mode = mode
         self.open = open
         self.open_many = open_many
@@ -138,8 +172,25 @@ class Chest(MutableMapping):
         self._on_miss = on_miss
         self._on_overflow = on_overflow
 
-    def __str__(self):
-        return '<chest at %s>' % self.path
+    def __repr__(self):
+        return '<chest at %s: keys=%s>' % (self.path, list(self._keys))
+    __str__ = __repr__
+
+    @property
+    def disk_usage(self):
+        path = self.path
+        return sum(
+            os.path.getsize(os.path.join(r, f))
+            for r, _, fs in os.walk(path) for f in fs
+        )
+
+    def dump(self, data, file_):
+        tmp = BytesIO()
+        self._dump(data, tmp)
+        bs = tmp.getvalue()
+        while self.disk_usage + len(bs) > self.available_disk:
+            self.on_full(self)
+        file_.write(bs)
 
     def key_to_filename(self, key):
         """ Filename where key will be held """
@@ -162,8 +213,11 @@ class Chest(MutableMapping):
             except TypeError:
                 os.remove(fn)
                 raise
-        self.memory_usage -= nbytes(self.inmem[key])
-        del self.inmem[key]
+        try:
+            self.memory_usage -= nbytes(self.inmem[key])
+            del self.inmem[key]
+        except KeyError:
+            pass
 
     def get_from_disk(self, key):
         """ Pull value from disk into memory """
