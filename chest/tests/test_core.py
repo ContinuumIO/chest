@@ -1,4 +1,3 @@
-from chest.core import Chest, nbytes, key_to_filename, full_policy
 import os
 import re
 import json
@@ -8,6 +7,9 @@ from contextlib import contextmanager
 import numpy as np
 from chest.utils import raises, raise_KeyError
 import hashlib
+
+from chest.core import Chest, nbytes, key_to_filename, full_policy
+from chest.utils import PY3
 
 
 @contextmanager
@@ -467,7 +469,8 @@ def test_available_disk_raise():
 
 
 def test_available_disk_pop_lru():
-    with tmp_chest(available_disk=100, on_full=full_policy.pop_lru) as c:
+    with tmp_chest(available_disk=100 if PY3 else 94,
+                   on_full=full_policy.pop_lru) as c:
         c[1] = 1
         assert not raises(KeyError, lambda: c[1])
         c[2] = 2
