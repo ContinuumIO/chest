@@ -311,7 +311,6 @@ class Chest(MutableMapping):
 
         while self.memory_usage > self.available_memory:
             key, _ = self.heap.popitem()
-            data = self.inmem[key]
             try:
                 self.move_to_disk(key)
             except TypeError:
@@ -338,7 +337,6 @@ class Chest(MutableMapping):
 
     def __exit__(self, eType, eValue, eTrace):
         with self.lock:
-            L = os.listdir(self.path)
             if not self._explicitly_given_path and os.path.exists(self.path):
                 self.drop()  # pragma: no cover
 
