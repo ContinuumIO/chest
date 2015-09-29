@@ -117,8 +117,6 @@ class Chest(MutableMapping):
         self.open_many = open_many
         self._key_to_filename = key_to_filename
         self.readonly = readonly
-        if (not self._explicitly_given_path) and self.readonly:
-            raise TypeError("Can't create an empty readonly chest")
 
         keyfile = os.path.join(self.path, '.keys')
         try:
@@ -137,6 +135,9 @@ class Chest(MutableMapping):
         # Debug
         self._on_miss = on_miss
         self._on_overflow = on_overflow
+
+        if (not self._explicitly_given_path) and self.readonly:
+            raise TypeError("Can't create an empty readonly chest")
 
     def __str__(self):
         return '<chest at %s>' % self.path
@@ -232,10 +233,8 @@ class Chest(MutableMapping):
             self.shrink()
 
     def __del__(self):
-        if self.readonly:
-            return
         if self._explicitly_given_path:
-            if os.path.exists(self.path):
+            if os.path.exists(self.path) and not self.readonly:
                 self.flush()
             else:
                 with self.lock:
