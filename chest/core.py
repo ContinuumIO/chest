@@ -70,6 +70,9 @@ class Chest(MutableMapping):
         A function like pickle.load or json.load that loads contents from file
     key_to_filename : function (optional)
         A function to determine filenames from key values
+    lock : Lock (optional)
+        The lock object to use to control access to the disk. If no lock is
+        given, a new threading lock will be used.
     mode : str (t or b)
         Binary or text mode for file storage
 
@@ -93,6 +96,7 @@ class Chest(MutableMapping):
                  dump=partial(pickle.dump, protocol=1),
                  load=pickle.load,
                  key_to_filename=key_to_filename,
+                 lock=None,
                  on_miss=_do_nothing, on_overflow=_do_nothing,
                  open=open,
                  open_many=_open_many,
@@ -124,7 +128,7 @@ class Chest(MutableMapping):
             if not os.path.exists(self.path):
                 os.mkdir(self.path)
 
-        self.lock = Lock()
+        self.lock = lock if lock is not None else Lock()
 
         # LRU state
         self.counter = 0
