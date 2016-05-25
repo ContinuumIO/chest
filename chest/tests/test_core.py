@@ -458,3 +458,38 @@ def test_prefetch():
         assert not raises(KeyError, lambda: c[1])
         c.prefetch([1, 2])
         assert not raises(KeyError, lambda: c[2])
+
+
+def test_readonly():
+    with tmp_chest(path="here") as c1:
+        c1[0] = 0
+        c1["foo"] = "bar"
+        c1.flush()
+        with tmp_chest(path="here", readonly=True) as c2:
+            assert c2[0] == 0
+            assert c2["foo"] == "bar"
+            try:
+                c2[0] = 1
+                assert False
+            except TypeError:
+                assert True
+            except:
+                assert False
+            try:
+                c2["spam"] = "eggs"
+                assert False
+            except TypeError:
+                assert True
+            except:
+                assert False
+            try:
+                del c2["foo"]
+                assert False
+            except TypeError:
+                assert True
+            except:
+                assert False
+
+
+def test_readonly_nopath():
+    assert raises(TypeError, lambda: Chest(readonly=True))

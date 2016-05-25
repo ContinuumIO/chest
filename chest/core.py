@@ -96,6 +96,7 @@ class Chest(MutableMapping):
                  on_miss=_do_nothing, on_overflow=_do_nothing,
                  open=open,
                  open_many=_open_many,
+                 readonly=False,
                  mode='b'):
         # In memory storage
         self.inmem = data or dict()
@@ -115,6 +116,7 @@ class Chest(MutableMapping):
         self.open = open
         self.open_many = open_many
         self._key_to_filename = key_to_filename
+        self.readonly = readonly
 
         keyfile = os.path.join(self.path, '.keys')
         try:
@@ -133,6 +135,9 @@ class Chest(MutableMapping):
         # Debug
         self._on_miss = on_miss
         self._on_overflow = on_overflow
+
+        if (not self._explicitly_given_path) and self.readonly:
+            raise TypeError("Can't create an empty readonly chest")
 
     def __str__(self):
         return '<chest at %s>' % self.path
@@ -196,6 +201,9 @@ class Chest(MutableMapping):
         self.heap[key] = self.counter
 
     def __delitem__(self, key):
+        if self.readonly:
+            raise TypeError("Can't delete from readonly chest")
+
         if key in self.inmem:
             self.memory_usage -= nbytes(self.inmem[key])
             del self.inmem[key]
@@ -209,6 +217,9 @@ class Chest(MutableMapping):
         del self._keys[key]
 
     def __setitem__(self, key, value):
+        if self.readonly:
+            raise TypeError("Can't assign in readonly chest")
+
         with self.lock:
             if key in self._keys:
                 del self[key]
@@ -223,7 +234,7 @@ class Chest(MutableMapping):
 
     def __del__(self):
         if self._explicitly_given_path:
-            if os.path.exists(self.path):
+            if os.path.exists(self.path) and not self.readonly:
                 self.flush()
             else:
                 with self.lock:
