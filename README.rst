@@ -139,7 +139,7 @@ It is a light weight dependency.
    :target: https://travis-ci.org/ContinuumIO/chest
 .. |Coverage Status| image:: https://coveralls.io/repos/mrocklin/chest/badge.png
    :target: https://coveralls.io/r/mrocklin/chest
-.. |Version Status| image:: https://pypip.in/v/chest/badge.png
+.. |Version Status| image:: https://img.shields.io/pypi/v/chest.svg
    :target: https://pypi.python.org/pypi/chest/
-.. |Downloads| image:: https://pypip.in/d/chest/badge.png
+.. |Downloads| image:: https://img.shields.io/pypi/dm/chest.svg
    :target: https://pypi.python.org/pypi/chest/
