@@ -1,4 +1,7 @@
-from collections import MutableMapping
+try:
+    from collections.abc import MutableMapping
+except ImportError:  # pragma: no cover
+    from collections import MutableMapping  # pragma: no cover
 from functools import partial
 from threading import Lock
 from contextlib import contextmanager
